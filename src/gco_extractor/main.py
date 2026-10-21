@@ -6,7 +6,7 @@ Ejecuta: uv run main.py
 from pathlib import Path
 
 from .api import extract_all_data
-from .config import CLIENT_SECRETS, FOLDER_ID, YEARS
+from .config import SERVICE_ACCOUNT_FILE, FOLDER_ID, YEARS
 from .drive import (
     download_existing_historial,
     get_drive,
@@ -23,8 +23,8 @@ def main() -> None:
         print("   Ejemplo: FOLDER_ID = '1a2b3c4d5e6f7g8h9i0j'")
         return
 
-    if not Path(CLIENT_SECRETS).exists():
-        print(f"❌ ERROR: No se encontró el archivo '{CLIENT_SECRETS}'.")
+    if not Path(SERVICE_ACCOUNT_FILE).exists():
+        print(f"❌ ERROR: No se encontró el archivo '{SERVICE_ACCOUNT_FILE}'.")
         print("   Descárgalo desde Google Cloud Console (OAuth client ID - Desktop app)")
         print("   y colócalo en la raíz del proyecto.")
         return

@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 import os
 from dotenv import load_dotenv
-load_dotenv() 
+
 
 # =============================================================================
 # AÑOS A EXTRAER (automático, cada 2 años desde 2020)
@@ -32,7 +32,7 @@ TYPES = {
     1: "Mortality",
 }
 
-
+load_dotenv() 
 def base_url(year: int) -> str:
     """URL base de la API para un año concreto."""
     return f"{os.getenv("DATAURL")}/{year}"
@@ -49,5 +49,5 @@ DRIVE_FILE_NAME = os.getenv("DRIVE_FILE_NAME")
 
 # Archivos de credenciales 
 ROOT_DIR = Path(__file__).resolve().parents[2]
-CLIENT_SECRETS = ROOT_DIR /  os.getenv("CLIENT_SECRETS")
-CREDS_FILE = ROOT_DIR /  os.getenv("CREDS_FILE")
+
+SERVICE_ACCOUNT_FILE = ROOT_DIR /  os.getenv("SERVICE_ACCOUNT_FILE")

@@ -1,70 +1,42 @@
 """
-Conexión y operaciones con Google Drive.
-Incluye refresh_token (acceso offline) para automatización.
+Conexión a Google Drive con Service Account (sirve en local y en GitHub Actions).
 """
 
 import io
+from pathlib import Path
 
 import pandas as pd
+from oauth2client.service_account import ServiceAccountCredentials
 from pydrive2.auth import GoogleAuth
 from pydrive2.drive import GoogleDrive
 
-from .config import (
-    CLIENT_SECRETS,
-    CREDS_FILE,
-    DRIVE_FILE_NAME,
-    FOLDER_ID,
-)
+from .config import DRIVE_FILE_NAME, FOLDER_ID, SERVICE_ACCOUNT_FILE
 
 
 def get_drive() -> GoogleDrive:
-    """Autentica y devuelve GoogleDrive con refresh_token offline."""
-    from pathlib import Path
+    """Autentica con Service Account (sin navegador)."""
+    sa_path = Path(SERVICE_ACCOUNT_FILE)
+
+    # En GitHub Actions el secreto se escribe como service_account.json en la raíz
+    if not sa_path.exists():
+        sa_path = Path("service_account.json")
+
+    if not sa_path.exists():
+        raise FileNotFoundError(
+            "No se encontró service_account.json.\n"
+            "- En local: ponlo en la raíz del proyecto.\n"
+            "- En GitHub: configura el secreto GOOGLE_SERVICE_ACCOUNT_JSON."
+        )
 
     gauth = GoogleAuth()
-
-    client_secrets = str(CLIENT_SECRETS)
-    creds_file = str(CREDS_FILE)
-
-    # Solo client secrets + refresh token (NO configurar backend file aún)
-    gauth.DEFAULT_SETTINGS["client_config_file"] = client_secrets
-    gauth.DEFAULT_SETTINGS["get_refresh_token"] = True
-    gauth.DEFAULT_SETTINGS["oauth_scope"] = ["https://www.googleapis.com/auth/drive"]
-
-    # Cargar token previo si existe
-    if Path(creds_file).exists():
-        try:
-            gauth.LoadCredentialsFile(creds_file)
-        except Exception:
-            gauth.credentials = None
-
-    if gauth.credentials is None:
-        print("Se abrirá el navegador para autorizar Google Drive...")
-        print("(Acceso offline: se guardará refresh_token)")
-        gauth.LocalWebserverAuth()
-    elif gauth.access_token_expired:
-        try:
-            print("Token expirado → renovando...")
-            gauth.Refresh()
-        except Exception as e:
-            print(f"No se pudo renovar ({e}). Reautorizando...")
-            if Path(creds_file).exists():
-                Path(creds_file).unlink()
-            gauth.credentials = None
-            gauth.LocalWebserverAuth()
-    else:
-        gauth.Authorize()
-
-    # Guardar credenciales DESPUÉS de autenticar
-    gauth.SaveCredentialsFile(creds_file)
+    scopes = ["https://www.googleapis.com/auth/drive"]
+    gauth.credentials = ServiceAccountCredentials.from_json_keyfile_name(
+        str(sa_path), scopes
+    )
     return GoogleDrive(gauth)
 
+
 def download_existing_historial(drive: GoogleDrive) -> pd.DataFrame | None:
-    """
-    Busca el archivo de historial en Drive.
-    Si existe, lo descarga en memoria y lo devuelve como DataFrame.
-    Si no existe, devuelve None.
-    """
     query = (
         f"'{FOLDER_ID}' in parents and "
         f"title = '{DRIVE_FILE_NAME}' and "
@@ -78,7 +50,6 @@ def download_existing_historial(drive: GoogleDrive) -> pd.DataFrame | None:
 
     gfile = file_list[0]
     print(f"Historial encontrado en Drive (ID: {gfile['id']}) → descargando...")
-
     content = gfile.GetContentString(encoding="utf-8")
     df_old = pd.read_csv(io.StringIO(content))
     print(f"   → {len(df_old):,} filas históricas cargadas")
@@ -88,11 +59,6 @@ def download_existing_historial(drive: GoogleDrive) -> pd.DataFrame | None:
 def merge_with_historial(
     df_new: pd.DataFrame, df_old: pd.DataFrame | None
 ) -> pd.DataFrame:
-    """
-    Combina los datos nuevos con el historial.
-    - Reemplaza en el histórico los años que se acaban de extraer.
-    - Conserva el resto de años que ya estaban en Drive.
-    """
     if df_new is None or df_new.empty:
         print("No hay datos nuevos → se conserva el historial actual.")
         return df_old if df_old is not None else pd.DataFrame()
@@ -108,25 +74,18 @@ def merge_with_historial(
     print(f"   → Filas de otros años conservadas: {len(df_old_clean):,}")
 
     df_final = pd.concat([df_old_clean, df_new], ignore_index=True)
-
     df_final = df_final.sort_values(
         by=["year", "cancer_id", "population_code", "sex_code", "type_code"]
     ).reset_index(drop=True)
-
     return df_final
 
 
 def upload_to_drive(drive: GoogleDrive, df: pd.DataFrame) -> None:
-    """
-    Sube (o actualiza) el DataFrame como CSV en la carpeta de Google Drive.
-    No guarda nada en local.
-    """
     if df is None or df.empty:
-        print("✗ No hay datos para subir. Se cancela la subida a Drive.")
+        print("✗ No hay datos para subir.")
         return
 
     print("\n=== Subiendo archivo a Google Drive ===")
-
     buffer = io.StringIO()
     df.to_csv(buffer, index=False, encoding="utf-8-sig")
     csv_content = buffer.getvalue()
@@ -140,20 +99,17 @@ def upload_to_drive(drive: GoogleDrive, df: pd.DataFrame) -> None:
 
     if file_list:
         gfile = file_list[0]
-        print(f"Archivo existente encontrado → se actualizará (ID: {gfile['id']})")
+        print(f"Archivo existente → se actualizará (ID: {gfile['id']})")
     else:
         gfile = drive.CreateFile(
-            {
-                "title": DRIVE_FILE_NAME,
-                "parents": [{"id": FOLDER_ID}],
-            }
+            {"title": DRIVE_FILE_NAME, "parents": [{"id": FOLDER_ID}]}
         )
-        print("Archivo nuevo → se creará en la carpeta de Drive")
+        print("Archivo nuevo → se creará en Drive")
 
     gfile.SetContentString(csv_content)
     gfile.Upload()
 
-    print("✅ Archivo subido correctamente a Google Drive")
+    print("✅ Subido a Google Drive")
     print(f"   Nombre : {DRIVE_FILE_NAME}")
     print(f"   Filas  : {len(df):,}")
     print(f"   Años   : {sorted(df['year'].unique().tolist())}")
