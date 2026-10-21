@@ -24,9 +24,13 @@ jobs:
         run: |
           echo '${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}' > service_account.json
 
+      - name: Crear archivo .env
+        run: |
+          echo '${{ secrets.ENV_FILE }}' > .env
+
       - name: Ejecutar extractor
         run: uv run main.py
 
-      - name: Limpiar clave
+      - name: Limpiar archivos sensibles
         if: always()
-        run: rm -f service_account.json
+        run: rm -f service_account.json .env
