@@ -1,7 +1,6 @@
 """
 Conexión a Google Drive con Service Account (sirve en local y en GitHub Actions).
 """
-
 import io
 from pathlib import Path
 
@@ -9,6 +8,7 @@ import pandas as pd
 from oauth2client.service_account import ServiceAccountCredentials
 from pydrive2.auth import GoogleAuth
 from pydrive2.drive import GoogleDrive
+from pydrive2.files import ApiRequestError
 
 from .config import DRIVE_FILE_NAME, FOLDER_ID, SERVICE_ACCOUNT_FILE
 
@@ -37,23 +37,35 @@ def get_drive() -> GoogleDrive:
 
 
 def download_existing_historial(drive: GoogleDrive) -> pd.DataFrame | None:
-    query = (
-        f"'{FOLDER_ID}' in parents and "
-        f"title = '{DRIVE_FILE_NAME}' and "
-        f"trashed = false"
-    )
-    file_list = drive.ListFile({"q": query}).GetList()
+    try:
+        # Intento 1: Buscar por carpeta contenedora y nombre
+        query = (
+            f"'{FOLDER_ID}' in parents and "
+            f"title = '{DRIVE_FILE_NAME}' and "
+            f"trashed = false"
+        )
+        file_list = drive.ListFile({"q": query}).GetList()
 
-    if not file_list:
-        print("No se encontró historial previo en Drive.")
+        # Intento 2: Búsqueda global por nombre (fallback para cuentas de servicio)
+        if not file_list:
+            query_alt = f"title = '{DRIVE_FILE_NAME}' and trashed = false"
+            file_list = drive.ListFile({"q": query_alt}).GetList()
+
+        if not file_list:
+            print("No se encontró historial previo en Drive.")
+            return None
+
+        gfile = file_list[0]
+        print(f"Historial encontrado en Drive (ID: {gfile['id']}) → descargando...")
+        content = gfile.GetContentString(encoding="utf-8")
+        df_old = pd.read_csv(io.StringIO(content))
+        print(f"   → {len(df_old):,} filas históricas cargadas")
+        return df_old
+
+    except ApiRequestError as e:
+        print(f"Advertencia al consultar Google Drive (404 / Permisos): {e}")
+        print("Continuando como primera ejecución (sin historial previo)...")
         return None
-
-    gfile = file_list[0]
-    print(f"Historial encontrado en Drive (ID: {gfile['id']}) → descargando...")
-    content = gfile.GetContentString(encoding="utf-8")
-    df_old = pd.read_csv(io.StringIO(content))
-    print(f"   → {len(df_old):,} filas históricas cargadas")
-    return df_old
 
 
 def merge_with_historial(
@@ -90,17 +102,26 @@ def upload_to_drive(drive: GoogleDrive, df: pd.DataFrame) -> None:
     df.to_csv(buffer, index=False, encoding="utf-8-sig")
     csv_content = buffer.getvalue()
 
-    query = (
-        f"'{FOLDER_ID}' in parents and "
-        f"title = '{DRIVE_FILE_NAME}' and "
-        f"trashed = false"
-    )
-    file_list = drive.ListFile({"q": query}).GetList()
+    gfile = None
+    try:
+        query = (
+            f"'{FOLDER_ID}' in parents and "
+            f"title = '{DRIVE_FILE_NAME}' and "
+            f"trashed = false"
+        )
+        file_list = drive.ListFile({"q": query}).GetList()
 
-    if file_list:
-        gfile = file_list[0]
-        print(f"Archivo existente → se actualizará (ID: {gfile['id']})")
-    else:
+        if not file_list:
+            query_alt = f"title = '{DRIVE_FILE_NAME}' and trashed = false"
+            file_list = drive.ListFile({"q": query_alt}).GetList()
+
+        if file_list:
+            gfile = file_list[0]
+            print(f"Archivo existente → se actualizará (ID: {gfile['id']})")
+    except ApiRequestError as e:
+        print(f"Aviso al buscar archivo existente en Drive: {e}")
+
+    if gfile is None:
         gfile = drive.CreateFile(
             {"title": DRIVE_FILE_NAME, "parents": [{"id": FOLDER_ID}]}
         )
