@@ -1,4 +1,4 @@
-name: GCO Extract (cada 3 meses)
+nname: GCO Extract (cada 3 meses)
 
 on:
   schedule:
@@ -20,11 +20,7 @@ jobs:
       - name: Instalar dependencias
         run: uv sync
 
-<<<<<<< HEAD
       - name: Crear service_account.json
-=======
-      - name: Crear service_account.json desde secreto
->>>>>>> a89251f (Add GitHub Actions workflow)
         run: |
           echo '${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}' > service_account.json
 
