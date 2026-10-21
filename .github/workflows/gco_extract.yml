@@ -1,0 +1,32 @@
+name: GCO Extract (cada 3 meses)
+
+on:
+  schedule:
+    - cron: "0 12 1 1,4,7,10 *"
+  workflow_dispatch:
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Instalar uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Instalar dependencias
+        run: uv sync
+
+      - name: Crear service_account.json
+        run: |
+          echo '${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}' > service_account.json
+
+      - name: Ejecutar extractor
+        run: uv run main.py
+
+      - name: Limpiar clave
+        if: always()
+        run: rm -f service_account.json
